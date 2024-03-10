@@ -25,7 +25,7 @@ func main() {
 	var err error
 	var policies *loader.Result
 
-	policyAbsolutePath, _ := filepath.Abs(fmt.Sprintf("../iac-coding-exercise/policies/%v/policy.rego", resourceType))
+	policyAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/policy.rego", resourceType))
 	if policies, err = loader.NewFileLoader().Filtered([]string{policyAbsolutePath}, func(_ string, info os.FileInfo, _ int) bool {
 		return !info.IsDir() && !strings.HasSuffix(info.Name(), bundle.RegoExt)
 	}); err != nil {
@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// read resource declaration file
-	resourceDeclarationFileAbsolutePath, _ := filepath.Abs(fmt.Sprintf("../iac-coding-exercise/policies/%v/resource.json", resourceType))
+	resourceDeclarationFileAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/resource.json", resourceType))
 	resourceFileContent, err := os.ReadFile(resourceDeclarationFileAbsolutePath)
 	if err != nil {
 		panic(err)
