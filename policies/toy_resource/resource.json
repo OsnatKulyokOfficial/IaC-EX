@@ -1,8 +1,37 @@
 {
-  "type": "Toy Resource",
-  "items": [
-    "I",
-    "Love",
-    "Coding"
+  "type": "Cool Resource",
+
+  "sub_resource_permissions": [
+    {
+      "name": "sub_resource_0",
+
+      "encrypted": false,
+
+      "acl": ["Read", "Write", "Admin", "RiskyWrite"]
+    },
+
+    {
+      "name": "sub_resource_1",
+
+      "encrypted": true,
+
+      "acl": ["Read", "Write", "Admin", "RiskyWrite"]
+    },
+
+    {
+      "name": "sub_resource_2",
+
+      "encrypted": false,
+
+      "acl": ["Read", "Write", "Admin"]
+    },
+
+    {
+      "name": "sub_resource_3",
+
+      "encrypted": false,
+
+      "acl": ["Admin", "RiskyWrite"]
+    }
   ]
 }
