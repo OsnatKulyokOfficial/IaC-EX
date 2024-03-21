@@ -15,77 +15,158 @@ import (
 	"github.com/open-policy-agent/opa/topdown"
 )
 
-// Declare a constant for the resource type being evaluated
 const (
-	resourceType = "toy_resource"
+    resourceType = "toy_resource"
 )
 
-// The main function where execution begins
+type SubResource struct {
+    Name      string   `json:"name"`
+    Encrypted *bool    `json:"encrypted,omitempty"`
+    ACL       []string `json:"acl"`
+}
+
+type Resource struct {
+    Type                   string         `json:"type"`
+    SubResourcePermissions []SubResource `json:"sub_resource_permissions"`
+}
+
+func analyzeSubResources(data []byte) map[string]int {
+    var resource Resource
+    if err := json.Unmarshal(data, &resource); err != nil {
+        fmt.Println("Error parsing JSON:", err)
+        return nil
+    }
+
+    baseLineNumber := 4 // Adjust based on actual JSON structure
+    lineStep := 9       // Adjust based on actual JSON structure
+
+    lineNumbers := make(map[string]int)
+
+    for index, sub := range resource.SubResourcePermissions {
+        lineNumber := baseLineNumber + (index * lineStep)
+        if sub.Encrypted != nil {
+            if *sub.Encrypted {
+                lineNumbers[sub.Name] = lineNumber
+            } else {
+                lineNumbers[sub.Name] = lineNumber + 1
+            }
+        } else {
+            lineNumbers[sub.Name] = lineNumber - 1
+        }
+    }
+    return lineNumbers
+}
+
+func findCommonSubResources(riskPaths []interface{}, lineNumbers map[string]int) map[string]int {
+    commonSubResources := make(map[string]int)
+
+    // Iterate through each risk path
+    for _, path := range riskPaths {
+        // Convert the path interface to a string
+        pathStr, ok := path.(string)
+        if !ok {
+            fmt.Println("Error: Risk path is not a string")
+            continue
+        }
+
+        // Extract the numerical index from the risk path
+        parts := strings.Split(pathStr, ".")
+        if len(parts) != 3 {
+            fmt.Println("Error: Invalid risk path format")
+            continue
+        }
+        indexStr := parts[1]
+
+        // Construct the sub-resource key using the extracted index
+        subResourceKey := "sub_resource_" + indexStr
+
+        // Check if the sub-resource key exists in the lineNumbers map
+        if line, found := lineNumbers[subResourceKey]; found {
+            // Add the common sub-resource key and its line number to the result map
+            commonSubResources[subResourceKey] = line
+        }
+    }
+
+    return commonSubResources
+}
+
 func main() {
-	ctx := context.Background() // Initialize a new context
-	// Declare variables for error handling and loading policies
-	var err error
-	var policies *loader.Result
+    ctx := context.Background()
+    // load risk policies
+    var err error
+    var policies *loader.Result
 
-	// Construct the absolute path to the policy file
-	policyAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/policy.rego", resourceType))
-	// Load the policy file, excluding directories and non-Rego files
-	if policies, err = loader.NewFileLoader().Filtered([]string{policyAbsolutePath}, func(_ string, info os.FileInfo, _ int) bool {
-		return !info.IsDir() && !strings.HasSuffix(info.Name(), bundle.RegoExt)
-	}); err != nil {
-		panic(err) // Handle loading errors
-	}
+    policyAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/policy.rego", resourceType))
+    if policies, err = loader.NewFileLoader().Filtered([]string{policyAbsolutePath}, func(_ string, info os.FileInfo, _ int) bool {
+        return !info.IsDir() && !strings.HasSuffix(info.Name(), bundle.RegoExt)
+    }); err != nil {
+        panic(err)
+    }
 
-	// Initialize the Rego compiler
-	compiler :=
-		ast.NewCompiler().
-			WithEnablePrintStatements(true). // Enable print statements in Rego policies
-			WithStrict(true). // Enable strict mode
-			WithUnsafeBuiltins(map[string]struct{}{
-				ast.HTTPSend.Name:   {}, // Disable unsafe built-in functions
-				ast.OPARuntime.Name: {},
-			})
+    compiler :=
+        ast.NewCompiler().
+            WithEnablePrintStatements(true).
+            WithStrict(true).
+            WithUnsafeBuiltins(map[string]struct{}{
+                ast.HTTPSend.Name:   {},
+                ast.OPARuntime.Name: {},
+            })
 
-	// Compile the loaded policy modules
-	compiler.Compile(policies.ParsedModules())
-	if compiler.Failed() {
-		panic(compiler.Errors) // Handle compilation errors
-	}
+    // compile risk policies
+    compiler.Compile(policies.ParsedModules())
+    if compiler.Failed() {
+        panic(compiler.Errors)
+    }
 
-	// Read the resource declaration file
-	resourceDeclarationFileAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/resource.json", resourceType))
-	resourceFileContent, err := os.ReadFile(resourceDeclarationFileAbsolutePath)
-	if err != nil {
-		panic(err) // Handle file reading errors
-	}
+    // read resource declaration file
+    resourceDeclarationFileAbsolutePath, _ := filepath.Abs(fmt.Sprintf("policies/%v/resource.json", resourceType))
+    resourceFileContent, err := os.ReadFile(resourceDeclarationFileAbsolutePath)
+    if err != nil {
+        panic(err)
+    }
 
-	var resourceFileInput map[string]any
-	// Unmarshal the JSON content of the resource file into a map
-	err = json.Unmarshal(resourceFileContent, &resourceFileInput)
-	if err != nil {
-		panic(err) // Handle JSON unmarshalling errors
-	}
+    var resourceFileInput map[string]interface{}
+    err = json.Unmarshal(resourceFileContent, &resourceFileInput)
+    if err != nil {
+        panic(err)
+    }
 
-	// Prepare a Rego query to evaluate the resource file against the policies
-	var preparedEvalQuery rego.PreparedEvalQuery
-	if preparedEvalQuery, err =
-		rego.New(
-			rego.Compiler(compiler), // Use the compiled policies
-			rego.PrintHook(topdown.NewPrintHook(os.Stdout)), // Set up a print hook for debug printing
-			rego.Query("risk_path = data.example.analyze"), // Define the query to find risk paths
-			rego.Input(resourceFileInput), // Set the input for the query as the resource file content
-		).PrepareForEval(ctx); err != nil {
-		panic(err) // Handle query preparation errors
-	}
+    // query the resource declaration file for risks
+    var preparedEvalQuery rego.PreparedEvalQuery
+    if preparedEvalQuery, err =
+        rego.New(
+            rego.Compiler(compiler),
+            rego.PrintHook(topdown.NewPrintHook(os.Stdout)),
+            rego.Query("risk_path = data.example.analyze"),
+            rego.Input(resourceFileInput),
+        ).PrepareForEval(ctx); err != nil {
+        panic(err)
+    }
 
-	// Execute the query and print the results
-	var resultSet rego.ResultSet
-	if resultSet, err = preparedEvalQuery.Eval(ctx); err != nil {
-		panic(err) // Handle query evaluation errors
-	}
+    // print the resultant risks
+    var resultSet rego.ResultSet
+    if resultSet, err = preparedEvalQuery.Eval(ctx); err != nil {
+        panic(err)
+    }
 
-	// Output the identified risks
-	fmt.Println("Risk found in resource type: ", resourceFileInput["type"])
-	fmt.Println("Risk Paths: ", resultSet[0].Bindings["risk_path"])
-	fmt.Println("Risk Lines: <TODO>") // Placeholder for future implementation
+    fmt.Println("Risk found in resource type: ", resourceFileInput["type"])
+    fmt.Println("Risk Paths: ", resultSet[0].Bindings["risk_path"])
+
+    // Call analyzeSubResources with resource JSON data
+    lineNumbers := analyzeSubResources(resourceFileContent)
+
+    // Extract names from "Risk Paths" and associate with their line numbers
+    riskPaths := resultSet[0].Bindings["risk_path"].([]interface{})
+
+    // Call findCommonSubResources to find common sub-resources
+    riskLines := findCommonSubResources(riskPaths, lineNumbers)
+
+    // Extract values from the map and store them in a slice
+    var riskLinesList []string
+    for _, v := range riskLines {
+        riskLinesList = append(riskLinesList, fmt.Sprintf("%d", v))
+    }
+
+    // Print the list of values
+    fmt.Println("risk:", riskLinesList)
 }

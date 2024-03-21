@@ -7,7 +7,7 @@ analyze[risk_path] {
     # Using index to directly access the elements in 'sub_resource_permissions'
     sub_resource := input.sub_resource_permissions[index]  
 
-    # Check either "encrypted" is false or even doesn't exist
+    # Check either "encrypted" is false or doesn't even exist 
     not sub_resource.encrypted
     #check for "RiskyWrite" in acl field.
     #[_]: the way to say "for each element".

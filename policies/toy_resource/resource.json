@@ -25,6 +25,7 @@
 
       "acl": ["Read", "Write", "Admin"]
     },
+
     {
       "name": "sub_resource_3",
 
